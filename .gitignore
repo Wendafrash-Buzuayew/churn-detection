@@ -1,0 +1,115 @@
+# =========================
+# Python Standard Ignores
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# =========================
+# Jupyter Notebook
+# =========================
+.ipynb_checkpoints
+*.nbconvert.ipynb
+
+# =========================
+# Machine Learning / Data Science
+# =========================
+# Datasets
+data/
+datasets/
+*.csv
+*.tsv
+*.json
+*.xlsx
+*.xls
+
+# Model files
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.tflite
+
+# Experiment logs
+logs/
+log/
+*.log
+events.out.tfevents.*
+
+# ML frameworks cache
+__pycache__/
+*.pb
+*.pbtxt
+*.npy
+*.npz
+
+# =========================
+# IDE / Editor settings
+# =========================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# =========================
+# OS-specific files
+# =========================
+.DS_Store
+Thumbs.db
+
+churn_rules_output/
+churn_shap_output/
+churn_v2_output/
+files/
+*.csv
