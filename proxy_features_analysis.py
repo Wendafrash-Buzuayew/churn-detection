@@ -9,8 +9,8 @@ No external data required — all features built from columns already
 present in Sample_data_full_feature CSV.
 
 Run:
-    python3 scripts/proxy_features_analysis.py
-    python3 scripts/proxy_features_analysis.py --csv path/to/your_file.csv
+    python3 proxy_features_analysis.py
+    python3 proxy_features_analysis.py --csv path/to/your_file.csv
 """
 
 import argparse
@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_CSV = Path(__file__).parent.parent / (
-    "attached_assets/Sample_data_full_feature_(1)_1783009657718.csv"
+    "Sample_data_full_feature.csv"
 )
 
 parser = argparse.ArgumentParser(description="Churn proxy feature analysis")
@@ -39,7 +39,7 @@ args = parser.parse_args()
 CSV_PATH = Path(args.csv)
 if not CSV_PATH.exists():
     print(f"\n[ERROR] File not found: {CSV_PATH}")
-    print("Usage: python3 scripts/proxy_features_analysis.py --csv /path/to/your_file.csv\n")
+    print("Usage: python3 proxy_features_analysis.py --csv /path/to/your_file.csv\n")
     sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -339,13 +339,13 @@ print(f"  Subscribers flagged: {len(top_decile):,}")
 # Export enriched file
 # ─────────────────────────────────────────────────────────────────────────────
 
-output_path = Path("scripts/output_proxy_features.csv")
+output_path = Path("output_proxy_features.csv")
 export_cols = ["MSISDN", "DATASET_TYPE", TARGET] + FEATURE_COLS
 feat[export_cols].to_csv(output_path, index=False)
 print(f"\n  Output saved → {output_path}")
 print(f"  Columns: {len(export_cols)}  (MSISDN + label + {len(FEATURE_COLS)} proxy features)\n")
 print("  To merge back into your main pipeline:")
-print("  >>> enriched = pd.read_csv('scripts/output_proxy_features.csv')")
+print("  >>> enriched = pd.read_csv('output_proxy_features.csv')")
 print("  >>> final_df = main_df.merge(enriched[['MSISDN'] + proxy_cols], on='MSISDN', how='left')\n")
 print("=" * 70)
 print("  Done.")

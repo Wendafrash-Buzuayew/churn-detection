@@ -111,7 +111,7 @@ _TARGET_COL:   str = f"LABEL_CHURN_{CHURN_HORIZON}D"
 CFG = {
     # ── Data source ───────────────────────────────────────────────────────────
     "RUN_MODE"        : os.getenv("RUN_MODE", "CSV").upper(),
-    "INPUT_CSV"       : os.getenv("INPUT_CSV", "output_proxy_features.csv"),
+    "INPUT_CSV"       : os.getenv("INPUT_CSV", "Feb_Train.csv"),
     # ── Oracle connection (all values overridable via env vars) ───────────────
     "ORA_HOST"        : os.getenv("ORA_HOST",    "mdc1-charli-scan.safaricomet.net"),
     "ORA_PORT"        : int(os.getenv("ORA_PORT", "1521")),
@@ -532,24 +532,42 @@ def load_and_clean() -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
             hi = df[col].quantile(CFG["WINSOR_P_HIGH"])
             df[col] = df[col].clip(lo, hi)
 
-    # TRAIN / TEST split
+    # TRAIN / TEST split logic
     ds_col = CFG["DATASET_TYPE_COL"]
-    if ds_col in df.columns:
-        train_df = df[df[ds_col].str.upper() == "TRAIN"].reset_index(drop=True)
-        test_df  = df[df[ds_col].str.upper() == "TEST" ].reset_index(drop=True)
+    
+    # Check if column exists and contains actual TRAIN rows
+    if ds_col in df.columns and (df[ds_col].astype(str).str.upper() == "TRAIN").any():
+        train_df = df[df[ds_col].astype(str).str.upper() == "TRAIN"].reset_index(drop=True)
+        test_df  = df[df[ds_col].astype(str).str.upper() == "TEST"].reset_index(drop=True)
+        
+        # If TEST is empty, pull TEST from OOT if present, or split TRAIN
+        if len(test_df) == 0:
+            log.warning("No explicit TEST rows found. Checking for OOT rows as test set...")
+            test_df = df[df[ds_col].astype(str).str.upper() == "OOT"].reset_index(drop=True)
+            
         log.info("Partition via %s: TRAIN=%d rows, TEST=%d rows",
                  ds_col, len(train_df), len(test_df))
     else:
-        log.warning("No %s column — auto-splitting 70/30 stratified", ds_col)
+        # Triggers when column is missing OR when all values are 'OOT' / non-TRAIN
+        if ds_col in df.columns:
+            unique_vals = df[ds_col].astype(str).str.upper().unique().tolist()
+            log.warning("'%s' column found with values %s but NO 'TRAIN' rows detected. "
+                        "Falling back to 70/30 stratified split on available data.", ds_col, unique_vals)
+        else:
+            log.warning("No '%s' column found — auto-splitting 70/30 stratified.", ds_col)
+
         from sklearn.model_selection import train_test_split
         train_df, test_df = train_test_split(
             df, test_size=0.30, stratify=df[target],
             random_state=CFG["RANDOM_STATE"]
         )
+        train_df = train_df.reset_index(drop=True)
+        test_df = test_df.reset_index(drop=True)
 
     if len(train_df) == 0:
         raise RuntimeError(
-            "TRAIN set is empty. Check that DATASET_TYPE column has 'TRAIN' rows."
+            f"TRAIN set is empty. Input dataset shape is {df.shape}. "
+            "Please verify dataset labels or input file."
         )
 
     return train_df, test_df, feat_cols

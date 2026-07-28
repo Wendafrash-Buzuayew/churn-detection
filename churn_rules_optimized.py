@@ -70,7 +70,7 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CFG = {
-    "INPUT_CSV"       : os.getenv("INPUT_CSV",       "Feb_Train.csv"),
+    "INPUT_CSV"       : os.getenv("INPUT_CSV",       "Feb1_Train_with_recharg.csv"),
     "OUTPUT_DIR"      : os.getenv("OUTPUT_DIR",       "./churn_rules_output"),
     "ID_COL"          : os.getenv("ID_COL",           "MSISDN"),
     "CHURN_HORIZON"   : int(os.getenv("CHURN_HORIZON", "90")),
