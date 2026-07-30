@@ -112,4 +112,5 @@ churn_rules_output/
 churn_shap_output/
 churn_v2_output/
 files/
-*.csv.worktrees/
+*.csv
+.worktrees/
