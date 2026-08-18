@@ -74,6 +74,24 @@ def test_audit_reports_files_and_overlap(tmp_path):
     assert report["msisdn_overlap"]["a.csv__b.csv"] == 10
 
 
+def test_train_with_bad_eval_csv_still_writes_report(tmp_path, synthetic):
+    train_csv = tmp_path / "train.csv"
+    synthetic.to_csv(train_csv, index=False)
+    bad_eval = tmp_path / "bad_eval.csv"
+    synthetic.drop(columns=["LABEL_CHURN_90D"]).to_csv(bad_eval, index=False)
+    prefix = tmp_path / "report"
+    with pytest.raises(ValueError):
+        cli.main([
+            "train", str(train_csv),
+            "--eval-csv", str(bad_eval),
+            "--artifact", str(tmp_path / "model.joblib"),
+            "--report-prefix", str(prefix),
+        ])
+    report = json.loads((tmp_path / "report_training_report.json").read_text())
+    assert report["oof_metrics"]["roc_auc"] is not None
+    assert "validation" not in report
+
+
 @pytest.mark.skipif(not SAMPLE.exists(), reason="sample CSV not present")
 def test_real_sample_smoke(tmp_path):
     cli.main([

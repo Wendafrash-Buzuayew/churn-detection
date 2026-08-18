@@ -58,6 +58,10 @@ def train_command(train_csv: str, eval_csv: str | None,
     summary = ranker.fit(train_df)
     _ensure_parent(artifact)
     ranker.save(artifact)
+    # Write base training report immediately after fit/save to preserve it even if eval fails
+    report_path = f"{report_prefix}_training_report.json"
+    _ensure_parent(report_path)
+    Path(report_path).write_text(json.dumps(summary, indent=2))
     if eval_csv:
         eval_df = pd.read_csv(eval_csv)
         train_norm = schema.normalize_columns(train_df)
@@ -84,9 +88,8 @@ def train_command(train_csv: str, eval_csv: str | None,
             "metrics": evaluation.ranking_metrics(y_eval, scores),
             "lift_table": lift.to_dict(orient="records"),
         }
-    report_path = f"{report_prefix}_training_report.json"
-    _ensure_parent(report_path)
-    Path(report_path).write_text(json.dumps(summary, indent=2))
+        # Rewrite report with validation block after successful eval
+        Path(report_path).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary.get("oof_metrics", {}), indent=2))
     return summary
 
