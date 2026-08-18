@@ -206,6 +206,27 @@ def evaluate_command(scores_csv: str, labels_csv: str, train_csv: str | None,
             "churn_probability", ascending=False
         ).to_csv(output / name, index=False)
 
+    total_caught = 0
+    table_rows = []
+    for entry in per_tier:
+        total_caught += entry["churners"]
+        table_rows.append({
+            "tier": entry["tier"],
+            "contacted": "yes" if entry["tier"] in action_tiers else "no",
+            "customers": entry["n"],
+            "actual_churners": entry["churners"],
+            "precision_pct": round(100 * entry["precision"], 1) if entry["precision"] is not None else 0.0,
+            "share_of_all_churners_pct": round(100 * entry["share_of_all_churners"], 1),
+            "cumulative_recall_pct": round(100 * total_caught / total_churners, 1),
+        })
+    tier_table = pd.DataFrame(table_rows)
+    tier_table.to_csv(output / "per_tier_table.csv", index=False)
+    header = "| " + " | ".join(tier_table.columns) + " |"
+    separator = "|" + "|".join(["---"] * len(tier_table.columns)) + "|"
+    markdown_rows = ["| " + " | ".join(str(value) for value in row) + " |"
+                     for row in tier_table.itertuples(index=False)]
+    (output / "per_tier_table.md").write_text("\n".join([header, separator, *markdown_rows]) + "\n")
+
     contacted_total = tp + fp
     actual = report["actual_churners"]
     print(f"Cohort: {report['cohort']:,} customers"
@@ -222,7 +243,13 @@ def evaluate_command(scores_csv: str, labels_csv: str, train_csv: str | None,
     print(f"  Missed churners (FN): {fn:,}   Correctly left alone (TN): {tn:,}")
     if contacted_total:
         print(f"  Precision {report['precision']:.1%} | Recall {report['recall']:.1%}")
-    print(f"Wrote {output / 'confusion_matrix.json'}, missed_churners.csv, false_positives.csv")
+    print()
+    print(tier_table.to_string(index=False, formatters={
+        "customers": "{:,}".format, "actual_churners": "{:,}".format,
+    }))
+    print()
+    print(f"Wrote {output / 'confusion_matrix.json'}, per_tier_table.csv/.md, "
+          "missed_churners.csv, false_positives.csv")
     return report
 
 

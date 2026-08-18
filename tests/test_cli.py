@@ -187,6 +187,17 @@ def test_evaluate_writes_confusion_matrix_and_error_lists(tmp_path, synthetic):
     assert sum(report["missed_by_tier"].values()) == cm["fn"]
     assert all(tier not in report["action_tiers"] for tier in report["missed_by_tier"])
 
+    tier_table = pd.read_csv(out_dir / "per_tier_table.csv")
+    assert list(tier_table.columns) == [
+        "tier", "contacted", "customers", "actual_churners",
+        "precision_pct", "share_of_all_churners_pct", "cumulative_recall_pct",
+    ]
+    assert len(tier_table) == 4
+    assert tier_table["actual_churners"].sum() == cm["tp"] + cm["fn"]
+    assert tier_table["cumulative_recall_pct"].iloc[-1] == pytest.approx(100.0)
+    markdown = (out_dir / "per_tier_table.md").read_text()
+    assert "TIER_1_IMMINENT" in markdown and "|" in markdown
+
     missed = pd.read_csv(out_dir / "missed_churners.csv")
     false_positives = pd.read_csv(out_dir / "false_positives.csv")
     assert len(missed) == cm["fn"]
