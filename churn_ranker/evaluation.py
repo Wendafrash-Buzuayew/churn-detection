@@ -24,6 +24,10 @@ def ranking_metrics(y_true, scores) -> dict:
 def lift_table(y_true, scores, top_fractions=TOP_FRACTIONS) -> pd.DataFrame:
     y = np.asarray(y_true, dtype=int)
     s = np.asarray(scores, dtype=float)
+    if len(y) == 0:
+        return pd.DataFrame(columns=[
+            "top_fraction", "contacted", "churners_caught", "precision", "recall", "lift",
+        ])
     order = np.argsort(-s, kind="stable")
     cumulative_positives = np.cumsum(y[order])
     total_positives = max(int(y.sum()), 1)

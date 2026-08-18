@@ -35,3 +35,9 @@ def test_single_class_returns_none_aucs():
     metrics = evaluation.ranking_metrics(np.zeros(5, dtype=int), np.linspace(0, 1, 5))
     assert metrics["roc_auc"] is None
     assert metrics["pr_auc"] is None
+
+
+def test_lift_table_empty_input_returns_empty_frame():
+    table = evaluation.lift_table(np.array([]), np.array([]))
+    assert len(table) == 0
+    assert list(table.columns) == ["top_fraction", "contacted", "churners_caught", "precision", "recall", "lift"]
