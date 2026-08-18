@@ -47,6 +47,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     nan_column = np.full(n, np.nan, dtype=np.float32)
     core_w13_zero, core_collapse, core_runs = [], [], []
     core_baselines, core_slopes = [], []
+    core_missing = False
     for name, prefix in SERVICES.items():
         matrix = week_matrix(df, prefix)
         if matrix is None:
@@ -54,6 +55,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
             out[f"FE_{name}_SLOPE"] = nan_column
             out[f"FE_{name}_TERMINAL_ZERO_RUN"] = nan_column
             if name in CORE_SERVICES:
+                core_missing = True
                 core_w13_zero.append(np.zeros(n, dtype=bool))
                 core_collapse.append(np.zeros(n, dtype=bool))
                 core_runs.append(np.zeros(n, dtype=np.int8))
@@ -76,18 +78,27 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
             core_slopes.append(slope)
     zero_breadth = np.column_stack(core_w13_zero).sum(axis=1).astype(np.int8)
     baseline_total = np.column_stack(core_baselines).sum(axis=1)
-    out["FE_W13_ZERO_BREADTH"] = zero_breadth
-    out["FE_COLLAPSE_BREADTH"] = np.column_stack(core_collapse).sum(axis=1).astype(np.int8)
-    out["FE_ALL_CORE_ZERO_W13"] = (
-        (zero_breadth == len(CORE_SERVICES)) & (baseline_total > 0)
-    ).astype(np.int8)
-    out["FE_TERMINAL_MULTI_SERVICE"] = (
-        (zero_breadth >= 2) & (baseline_total > 0)
-    ).astype(np.int8)
-    out["FE_MAX_TERMINAL_ZERO_RUN"] = np.maximum.reduce(core_runs)
-    out["FE_DECLINING_SERVICES"] = (
-        np.column_stack(core_slopes) < DECLINE_SLOPE
-    ).sum(axis=1).astype(np.int8)
+    # If any core service is missing, all cross-service features must be NaN
+    if core_missing:
+        out["FE_W13_ZERO_BREADTH"] = nan_column
+        out["FE_COLLAPSE_BREADTH"] = nan_column
+        out["FE_ALL_CORE_ZERO_W13"] = nan_column
+        out["FE_TERMINAL_MULTI_SERVICE"] = nan_column
+        out["FE_MAX_TERMINAL_ZERO_RUN"] = nan_column
+        out["FE_DECLINING_SERVICES"] = nan_column
+    else:
+        out["FE_W13_ZERO_BREADTH"] = zero_breadth
+        out["FE_COLLAPSE_BREADTH"] = np.column_stack(core_collapse).sum(axis=1).astype(np.int8)
+        out["FE_ALL_CORE_ZERO_W13"] = (
+            (zero_breadth == len(CORE_SERVICES)) & (baseline_total > 0)
+        ).astype(np.int8)
+        out["FE_TERMINAL_MULTI_SERVICE"] = (
+            (zero_breadth >= 2) & (baseline_total > 0)
+        ).astype(np.int8)
+        out["FE_MAX_TERMINAL_ZERO_RUN"] = np.maximum.reduce(core_runs)
+        out["FE_DECLINING_SERVICES"] = (
+            np.column_stack(core_slopes) < DECLINE_SLOPE
+        ).sum(axis=1).astype(np.int8)
     recharge = week_matrix(df, SERVICES["RECHARGE_AMT"])
     if recharge is None:
         out["FE_RECHARGE_STOPPED"] = nan_column

@@ -56,6 +56,13 @@ def test_missing_service_columns_produce_nan_not_zero():
     assert np.isnan(out.loc[0, "FE_IC_VOICE_SLOPE"])
     assert np.isnan(out.loc[0, "FE_RECHARGE_STOPPED"])
     assert out.loc[0, "FE_AON_LOG"] == pytest.approx(np.log1p(100.0))
+    # Cross-service features must be NaN when any core service is missing
+    assert np.isnan(out.loc[0, "FE_W13_ZERO_BREADTH"])
+    assert np.isnan(out.loc[0, "FE_COLLAPSE_BREADTH"])
+    assert np.isnan(out.loc[0, "FE_ALL_CORE_ZERO_W13"])
+    assert np.isnan(out.loc[0, "FE_TERMINAL_MULTI_SERVICE"])
+    assert np.isnan(out.loc[0, "FE_MAX_TERMINAL_ZERO_RUN"])
+    assert np.isnan(out.loc[0, "FE_DECLINING_SERVICES"])
 
 
 def test_terminal_zero_run_counts_backwards_from_w13():
@@ -65,3 +72,42 @@ def test_terminal_zero_run_counts_backwards_from_w13():
         [0.0, 5.0, 0.0, 0.0],  # run 2 (gap resets)
     ], dtype=np.float32)
     assert features.terminal_zero_run(matrix).tolist() == [3, 0, 2]
+
+
+def test_partial_missing_core_service_produces_nan_cross_features():
+    # DATA_MB, OG_VOICE_MIN, TOTAL_SMS_COUNT, RECHARGE_AMT present
+    # but BUNDLE_CNT (core service) is missing
+    df = pd.DataFrame({
+        "DATA_MB_W10": [10.0],
+        "DATA_MB_W11": [10.0],
+        "DATA_MB_W12": [10.0],
+        "DATA_MB_W13": [5.0],
+        "OG_VOICE_MIN_W10": [5.0],
+        "OG_VOICE_MIN_W11": [5.0],
+        "OG_VOICE_MIN_W12": [5.0],
+        "OG_VOICE_MIN_W13": [5.0],
+        "TOTAL_SMS_COUNT_W10": [2.0],
+        "TOTAL_SMS_COUNT_W11": [2.0],
+        "TOTAL_SMS_COUNT_W12": [2.0],
+        "TOTAL_SMS_COUNT_W13": [2.0],
+        "RECHARGE_AMT_W10": [50.0],
+        "RECHARGE_AMT_W11": [50.0],
+        "RECHARGE_AMT_W12": [50.0],
+        "RECHARGE_AMT_W13": [50.0],
+    })
+    out = features.build_features(df)
+    # Per-service columns for present services should be computed
+    assert out.loc[0, "FE_DATA_W13_RATIO"] == pytest.approx(0.5)
+    assert out.loc[0, "FE_OG_VOICE_W13_RATIO"] == pytest.approx(1.0)
+    assert out.loc[0, "FE_SMS_W13_RATIO"] == pytest.approx(1.0)
+    # BUNDLE missing -> its per-service columns are NaN
+    assert np.isnan(out.loc[0, "FE_BUNDLE_W13_RATIO"])
+    assert np.isnan(out.loc[0, "FE_BUNDLE_SLOPE"])
+    assert np.isnan(out.loc[0, "FE_BUNDLE_TERMINAL_ZERO_RUN"])
+    # Cross-service features must all be NaN (core service missing)
+    assert np.isnan(out.loc[0, "FE_W13_ZERO_BREADTH"])
+    assert np.isnan(out.loc[0, "FE_COLLAPSE_BREADTH"])
+    assert np.isnan(out.loc[0, "FE_ALL_CORE_ZERO_W13"])
+    assert np.isnan(out.loc[0, "FE_TERMINAL_MULTI_SERVICE"])
+    assert np.isnan(out.loc[0, "FE_MAX_TERMINAL_ZERO_RUN"])
+    assert np.isnan(out.loc[0, "FE_DECLINING_SERVICES"])
