@@ -8,8 +8,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from churn_ranker import evaluation, schema
-from churn_ranker.modeling import ChurnRanker
+try:
+    from churn_ranker import evaluation, schema
+    from churn_ranker.modeling import ChurnRanker
+except ImportError:
+    # Executed as a direct script (python churn_ranker/cli.py): Python puts the
+    # package directory, not the repo root, on sys.path — add the root and retry.
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from churn_ranker import evaluation, schema
+    from churn_ranker.modeling import ChurnRanker
 
 
 def _ensure_parent(path: str) -> None:

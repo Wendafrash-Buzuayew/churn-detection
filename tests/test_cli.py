@@ -142,3 +142,19 @@ def test_real_sample_smoke(tmp_path):
         "--output", str(output),
     ])
     assert len(pd.read_csv(output)) == 7008
+
+
+def test_cli_runs_as_direct_script():
+    """python churn_ranker/cli.py must work, not only python -m churn_ranker.cli."""
+    import subprocess
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "churn_ranker" / "cli.py"), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(repo_root / "churn_ranker"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "audit" in result.stdout
