@@ -24,7 +24,8 @@ Spec: docs/superpowers/specs/2026-08-18-churn-risk-ranking-design.md
 | 20% | 78,036 | 14,774 | 0.189 | 0.740 | 3.701 |
 
 ## Reading this
-At a 4.6% base rate, random contact catches 4.6 churners per 100 calls. The lift column
+At the validation cohort's 5.1% base rate, random contact catches ~5.1 churners per 100
+calls. The lift column
 is the multiplier this model achieves at each capacity. Tier sizes (1% / 5% / 15%
 cumulative) can be re-fit to actual campaign capacity via RankerConfig.tier_spec.
 
