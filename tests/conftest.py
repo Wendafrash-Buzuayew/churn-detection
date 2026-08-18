@@ -15,8 +15,10 @@ def make_synthetic(n: int = 600, churn_frac: float = 0.1, seed: int = 0) -> pd.D
     y = np.zeros(n, dtype=int)
     y[: int(n * churn_frac)] = 1
     rng.shuffle(y)
+    # Generate MSISDNs offset by seed for cross-dataset uniqueness
+    start = seed * 10000
     df = pd.DataFrame({
-        "MSISDN": [f"2519{i:08d}" for i in range(n)],
+        "MSISDN": [f"2519{start + i:08d}" for i in range(n)],
         "SNAPSHOT_DATE": "2026-01-15",
         "DATASET_TYPE": "TRAIN",
         "AON": rng.integers(91, 1200, n),
