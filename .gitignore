@@ -114,3 +114,4 @@ churn_v2_output/
 files/
 *.csv
 .worktrees/
+.superpowers/
