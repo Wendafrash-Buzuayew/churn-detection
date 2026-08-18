@@ -116,6 +116,100 @@ def score_command(input_csv: str, artifact: str, output: str, chunk_size: int) -
     print(f"Wrote {output}")
 
 
+DEFAULT_ACTION_TIERS = ("TIER_1_IMMINENT", "TIER_2_HIGH_RISK")
+ERROR_LIST_COLUMNS = ["MSISDN", "churn_probability", "risk_tier", "reason_code"]
+
+
+def evaluate_command(scores_csv: str, labels_csv: str, train_csv: str | None,
+                     action_tiers: list[str], output_dir: str) -> dict:
+    """Confusion matrix plus named error lists for a scored file against labels.
+
+    "Predicted churner" means the customer landed in one of the action tiers —
+    the customers a retention campaign would actually contact.
+    """
+    scored = schema.normalize_columns(pd.read_csv(scores_csv))
+    labeled = schema.normalize_columns(pd.read_csv(labels_csv))
+    missing = {"MSISDN", "CHURN_PROBABILITY", "RISK_TIER", "REASON_CODE"} - set(scored.columns)
+    if missing:
+        raise ValueError(f"scores file missing columns: {sorted(missing)}")
+    if "MSISDN" not in labeled.columns or schema.TARGET not in labeled.columns:
+        raise ValueError(f"labels file must contain MSISDN and {schema.TARGET}")
+
+    scored["MSISDN"] = scored["MSISDN"].astype(str)
+    labels = labeled[["MSISDN", schema.TARGET]].copy()
+    labels["MSISDN"] = labels["MSISDN"].astype(str)
+    merged = scored.merge(labels, on="MSISDN", how="inner")
+
+    overlap_removed = 0
+    if train_csv:
+        train_ids = set(schema.normalize_columns(pd.read_csv(train_csv))["MSISDN"].astype(str))
+        keep = ~merged["MSISDN"].isin(train_ids)
+        overlap_removed = int((~keep).sum())
+        merged = merged.loc[keep]
+
+    y = pd.to_numeric(merged[schema.TARGET], errors="coerce").fillna(0).astype(int).to_numpy()
+    contacted = merged["RISK_TIER"].isin(action_tiers).to_numpy()
+    tp = int((contacted & (y == 1)).sum())
+    fp = int((contacted & (y == 0)).sum())
+    fn = int((~contacted & (y == 1)).sum())
+    tn = int((~contacted & (y == 0)).sum())
+
+    tier_order = [name for name, _ in ChurnRanker().config.tier_spec] + ["STABLE"]
+    per_tier = []
+    total_churners = max(int(y.sum()), 1)
+    for tier in tier_order:
+        in_tier = (merged["RISK_TIER"] == tier).to_numpy()
+        n = int(in_tier.sum())
+        churners = int((in_tier & (y == 1)).sum())
+        per_tier.append({
+            "tier": tier,
+            "n": n,
+            "churners": churners,
+            "precision": churners / n if n else None,
+            "share_of_all_churners": churners / total_churners,
+        })
+
+    report = {
+        "scores_csv": scores_csv,
+        "labels_csv": labels_csv,
+        "cohort": int(len(merged)),
+        "churners": int(y.sum()),
+        "overlap_msisdns_removed": overlap_removed,
+        "action_tiers": list(action_tiers),
+        "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
+        "precision": tp / (tp + fp) if tp + fp else None,
+        "recall": tp / (tp + fn) if tp + fn else None,
+        "per_tier": per_tier,
+    }
+
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "confusion_matrix.json").write_text(json.dumps(report, indent=2))
+    error_frame = merged.rename(columns={
+        "CHURN_PROBABILITY": "churn_probability",
+        "RISK_TIER": "risk_tier",
+        "REASON_CODE": "reason_code",
+    })[ERROR_LIST_COLUMNS + [schema.TARGET]]
+    churner = pd.to_numeric(error_frame[schema.TARGET], errors="coerce").fillna(0).astype(int) == 1
+    in_action = error_frame["risk_tier"].isin(action_tiers)
+    for name, mask in (("missed_churners.csv", churner & ~in_action),
+                       ("false_positives.csv", ~churner & in_action)):
+        error_frame.loc[mask, ERROR_LIST_COLUMNS].sort_values(
+            "churn_probability", ascending=False
+        ).to_csv(output / name, index=False)
+
+    contacted_total = tp + fp
+    print(f"Cohort: {report['cohort']:,} customers ({report['churners']:,} churned within 90 days)"
+          + (f"; {overlap_removed:,} training-overlap customers excluded" if overlap_removed else ""))
+    print(f"Action tiers {list(action_tiers)} -> contact {contacted_total:,} customers")
+    print(f"  Caught churners (TP): {tp:,}   Wasted contacts (FP): {fp:,}")
+    print(f"  Missed churners (FN): {fn:,}   Correctly left alone (TN): {tn:,}")
+    if contacted_total:
+        print(f"  Precision {report['precision']:.1%} | Recall {report['recall']:.1%}")
+    print(f"Wrote {output / 'confusion_matrix.json'}, missed_churners.csv, false_positives.csv")
+    return report
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="churn_ranker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -136,11 +230,24 @@ def main(argv: list[str] | None = None) -> None:
     p_score.add_argument("--output", default="churn_ranker_outputs/churn_scores.csv")
     p_score.add_argument("--chunk-size", type=int, default=100_000)
 
+    p_eval = sub.add_parser("evaluate", help="Confusion matrix and error lists for a scored file vs labels")
+    p_eval.add_argument("scores_csv")
+    p_eval.add_argument("labels_csv")
+    p_eval.add_argument("--train-csv", default=None,
+                        help="Exclude customers present in this training file from the metrics")
+    p_eval.add_argument("--action-tiers", default=",".join(DEFAULT_ACTION_TIERS),
+                        help="Comma-separated tiers counted as 'predicted churner'")
+    p_eval.add_argument("--output-dir", default="churn_ranker_outputs/evaluation")
+
     args = parser.parse_args(argv)
     if args.command == "audit":
         audit_command(args.csvs, args.output)
     elif args.command == "train":
         train_command(args.train_csv, args.eval_csv, args.artifact, args.report_prefix)
+    elif args.command == "evaluate":
+        evaluate_command(args.scores_csv, args.labels_csv, args.train_csv,
+                         [t.strip() for t in args.action_tiers.split(",") if t.strip()],
+                         args.output_dir)
     else:
         score_command(args.input_csv, args.artifact, args.output, args.chunk_size)
 

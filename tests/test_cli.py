@@ -158,3 +158,35 @@ def test_cli_runs_as_direct_script():
     )
     assert result.returncode == 0, result.stderr
     assert "audit" in result.stdout
+
+
+def test_evaluate_writes_confusion_matrix_and_error_lists(tmp_path, synthetic):
+    train_csv = tmp_path / "train.csv"
+    synthetic.to_csv(train_csv, index=False)
+    artifact = tmp_path / "model.joblib"
+    cli.main([
+        "train", str(train_csv),
+        "--artifact", str(artifact),
+        "--report-prefix", str(tmp_path / "report"),
+    ])
+    scores = tmp_path / "scores.csv"
+    cli.main(["score", str(train_csv), "--artifact", str(artifact), "--output", str(scores)])
+
+    out_dir = tmp_path / "evaluation"
+    cli.main(["evaluate", str(scores), str(train_csv), "--output-dir", str(out_dir)])
+
+    report = json.loads((out_dir / "confusion_matrix.json").read_text())
+    cm = report["confusion_matrix"]
+    assert cm["tp"] + cm["fp"] + cm["fn"] + cm["tn"] == len(synthetic)
+    assert cm["tp"] + cm["fn"] == int(synthetic["LABEL_CHURN_90D"].sum())
+    assert report["action_tiers"] == ["TIER_1_IMMINENT", "TIER_2_HIGH_RISK"]
+
+    missed = pd.read_csv(out_dir / "missed_churners.csv")
+    false_positives = pd.read_csv(out_dir / "false_positives.csv")
+    assert len(missed) == cm["fn"]
+    assert len(false_positives) == cm["fp"]
+    expected_columns = ["MSISDN", "churn_probability", "risk_tier", "reason_code"]
+    assert list(missed.columns) == expected_columns
+    assert list(false_positives.columns) == expected_columns
+    # error lists are sorted most-likely-churner first
+    assert missed["churn_probability"].is_monotonic_decreasing
