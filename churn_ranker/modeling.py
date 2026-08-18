@@ -39,10 +39,26 @@ class ChurnRanker:
     def _matrix(self, df: pd.DataFrame, fit: bool = False) -> np.ndarray:
         canonical = schema.to_canonical(df)
         derived = features.build_features(canonical)
-        base = canonical[schema.feature_columns(canonical)]
-        full = pd.concat([base, derived], axis=1)
         if fit:
+            base = canonical[schema.feature_columns(canonical)]
+            full = pd.concat([base, derived], axis=1)
             self.feature_names_ = list(full.columns)
+        else:
+            # Build the base frame from the trained base feature names rather than
+            # re-deriving them from this chunk's dtypes: a chunk where a numeric
+            # column parses as object must still be coerced, not silently dropped
+            # (which would leave the trained feature NaN after the reindex below).
+            base_names = [n for n in self.feature_names_ if not n.startswith("FE_")]
+            base = pd.DataFrame(
+                {
+                    c: pd.to_numeric(canonical[c], errors="coerce")
+                    if c in canonical.columns
+                    else np.full(len(canonical), np.nan)
+                    for c in base_names
+                },
+                index=canonical.index,
+            )
+            full = pd.concat([base, derived], axis=1)
         full = full.reindex(columns=self.feature_names_)
         return full.to_numpy(dtype=np.float32)
 

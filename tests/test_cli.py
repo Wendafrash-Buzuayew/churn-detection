@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -90,6 +91,39 @@ def test_train_with_bad_eval_csv_still_writes_report(tmp_path, synthetic):
     report = json.loads((tmp_path / "report_training_report.json").read_text())
     assert report["oof_metrics"]["roc_auc"] is not None
     assert "validation" not in report
+
+
+def test_score_chunked_matches_unchunked(tmp_path, synthetic):
+    train_csv = tmp_path / "train.csv"
+    synthetic.to_csv(train_csv, index=False)
+    artifact = tmp_path / "model.joblib"
+    prefix = tmp_path / "report"
+    cli.main([
+        "train", str(train_csv),
+        "--artifact", str(artifact),
+        "--report-prefix", str(prefix),
+    ])
+
+    small_chunks = tmp_path / "scores_small.csv"
+    big_chunk = tmp_path / "scores_big.csv"
+    cli.main([
+        "score", str(train_csv),
+        "--artifact", str(artifact),
+        "--output", str(small_chunks),
+        "--chunk-size", "200",
+    ])
+    cli.main([
+        "score", str(train_csv),
+        "--artifact", str(artifact),
+        "--output", str(big_chunk),
+        "--chunk-size", "100000",
+    ])
+
+    scored_small = pd.read_csv(small_chunks)
+    scored_big = pd.read_csv(big_chunk)
+    np.testing.assert_allclose(
+        scored_small["churn_probability"], scored_big["churn_probability"]
+    )
 
 
 @pytest.mark.skipif(not SAMPLE.exists(), reason="sample CSV not present")

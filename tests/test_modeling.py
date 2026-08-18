@@ -58,3 +58,14 @@ def test_save_load_roundtrip(tmp_path, synthetic):
 def test_fit_without_target_raises(synthetic):
     with pytest.raises(ValueError):
         ChurnRanker(FAST).fit(synthetic.drop(columns=["LABEL_CHURN_90D"]))
+
+
+def test_predict_proba_coerces_object_dtype_numeric_column(synthetic):
+    ranker = ChurnRanker(FAST)
+    ranker.fit(synthetic)
+    flipped = synthetic.copy()
+    flipped["DATA_MB_W13"] = flipped["DATA_MB_W13"].astype(str)
+    flipped.loc[0, "DATA_MB_W13"] = ""
+    expected = ranker.predict_proba(synthetic)
+    actual = ranker.predict_proba(flipped)
+    np.testing.assert_allclose(actual[1:], expected[1:])
