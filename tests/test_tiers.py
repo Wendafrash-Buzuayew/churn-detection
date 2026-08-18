@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from churn_ranker import tiers
 
@@ -50,3 +51,26 @@ def test_stable_rows_get_empty_reason():
     })
     reasons = tiers.reason_codes(derived, np.array([tiers.STABLE]))
     assert reasons.tolist() == [""]
+
+
+def test_tier_thresholds_empty_scores_raises():
+    with pytest.raises(ValueError):
+        tiers.tier_thresholds(np.array([]))
+
+
+def test_reason_codes_complete_coverage():
+    """Test voice_usage_collapse and gradual_decline conditions not covered in test_reason_priority_order."""
+    derived = pd.DataFrame({
+        "FE_ALL_CORE_ZERO_W13": [0, 0],
+        "FE_TERMINAL_MULTI_SERVICE": [0, 0],
+        "FE_RECHARGE_STOPPED": [0, 0],
+        "FE_DATA_W13_RATIO": [0.3, 0.3],  # > 0.2, so no data_usage_collapse
+        "FE_OG_VOICE_W13_RATIO": [0.1, 0.3],  # first row: <= 0.2 (voice collapse), second: > 0.2
+        "FE_DECLINING_SERVICES": [1, 2],  # first: < 2 (no gradual_decline), second: >= 2 (gradual_decline)
+    })
+    tier_labels = np.array(["TIER_1_IMMINENT"] * 2)
+    reasons = tiers.reason_codes(derived, tier_labels)
+    assert reasons.tolist() == [
+        "voice_usage_collapse",
+        "gradual_decline",
+    ]

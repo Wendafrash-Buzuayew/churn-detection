@@ -17,6 +17,8 @@ GRADUAL_DECLINE_SERVICES = 2
 def tier_thresholds(scores, tier_spec=DEFAULT_TIERS) -> list[tuple[str, float]]:
     """Score quantile per cumulative top fraction, fixed at training time."""
     s = np.asarray(scores, dtype=float)
+    if len(s) == 0:
+        raise ValueError("tier_thresholds requires at least one score")
     return [
         (name, float(np.quantile(s, 1.0 - top_fraction)))
         for name, top_fraction in tier_spec
