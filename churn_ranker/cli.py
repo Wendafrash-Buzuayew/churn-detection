@@ -169,11 +169,19 @@ def evaluate_command(scores_csv: str, labels_csv: str, train_csv: str | None,
             "share_of_all_churners": churners / total_churners,
         })
 
+    missed_by_tier = {
+        entry["tier"]: entry["churners"]
+        for entry in per_tier
+        if entry["tier"] not in action_tiers
+    }
     report = {
         "scores_csv": scores_csv,
         "labels_csv": labels_csv,
         "cohort": int(len(merged)),
-        "churners": int(y.sum()),
+        "actual_churners": int(y.sum()),
+        "caught_churners": tp,
+        "missed_churners": fn,
+        "missed_by_tier": missed_by_tier,
         "overlap_msisdns_removed": overlap_removed,
         "action_tiers": list(action_tiers),
         "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
@@ -199,8 +207,16 @@ def evaluate_command(scores_csv: str, labels_csv: str, train_csv: str | None,
         ).to_csv(output / name, index=False)
 
     contacted_total = tp + fp
-    print(f"Cohort: {report['cohort']:,} customers ({report['churners']:,} churned within 90 days)"
-          + (f"; {overlap_removed:,} training-overlap customers excluded" if overlap_removed else ""))
+    actual = report["actual_churners"]
+    print(f"Cohort: {report['cohort']:,} customers"
+          + (f" ({overlap_removed:,} training-overlap customers excluded)" if overlap_removed else ""))
+    print(f"Actual churners in cohort: {actual:,}")
+    if actual:
+        print(f"  Caught by action tiers: {tp:,} ({tp / actual:.1%})")
+        print(f"  Missed: {fn:,} ({fn / actual:.1%})")
+        for tier, count in missed_by_tier.items():
+            note = " (scored stable - truly missed)" if tier == "STABLE" else " (still visible, below the action line)"
+            print(f"    - in {tier}: {count:,}{note}")
     print(f"Action tiers {list(action_tiers)} -> contact {contacted_total:,} customers")
     print(f"  Caught churners (TP): {tp:,}   Wasted contacts (FP): {fp:,}")
     print(f"  Missed churners (FN): {fn:,}   Correctly left alone (TN): {tn:,}")

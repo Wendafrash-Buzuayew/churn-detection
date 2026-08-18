@@ -181,6 +181,12 @@ def test_evaluate_writes_confusion_matrix_and_error_lists(tmp_path, synthetic):
     assert cm["tp"] + cm["fn"] == int(synthetic["LABEL_CHURN_90D"].sum())
     assert report["action_tiers"] == ["TIER_1_IMMINENT", "TIER_2_HIGH_RISK"]
 
+    assert report["actual_churners"] == cm["tp"] + cm["fn"]
+    assert report["caught_churners"] == cm["tp"]
+    assert report["missed_churners"] == cm["fn"]
+    assert sum(report["missed_by_tier"].values()) == cm["fn"]
+    assert all(tier not in report["action_tiers"] for tier in report["missed_by_tier"])
+
     missed = pd.read_csv(out_dir / "missed_churners.csv")
     false_positives = pd.read_csv(out_dir / "false_positives.csv")
     assert len(missed) == cm["fn"]
