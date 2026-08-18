@@ -41,11 +41,23 @@ All commands run from the repo root with the project venv:
     --artifact churn_ranker_outputs/churn_ranker.joblib \
     --report-prefix churn_ranker_outputs/churn_ranker
 
-# 3. Score any subscriber file (chunked; works on unlabeled data)
+# 3. Score any subscriber file (chunked; works on unlabeled data — no LABEL or
+#    DATASET_TYPE columns needed; see docs/reports/2026-08-19-blind-test.md)
 ./venv/Scripts/python.exe -m churn_ranker.cli score March_validation_with_recharg.csv \
     --artifact churn_ranker_outputs/churn_ranker.joblib \
     --output churn_ranker_outputs/scores.csv
+
+# 4. Grade scored output against matured labels: confusion matrix, per-tier table
+#    (terminal + CSV + Markdown), missed-churner and false-positive lists
+./venv/Scripts/python.exe -m churn_ranker.cli evaluate churn_ranker_outputs/scores.csv March_validation_with_recharg.csv \
+    --train-csv Feb1_Train_with_recharg.csv \
+    --output-dir churn_ranker_outputs/evaluation
 ```
+
+`evaluate` treats the action tiers (default Tier 1 + Tier 2, configurable via
+`--action-tiers`) as "predicted churner", prints actual/caught/missed churner counts in
+plain language, and writes `confusion_matrix.json`, `per_tier_table.csv`/`.md`,
+`missed_churners.csv`, and `false_positives.csv`.
 
 Training on the 521K-row file takes roughly 20–40 minutes (5-fold cross-validation plus a final fit). Everything lands in `churn_ranker_outputs/` (gitignored).
 
@@ -120,9 +132,14 @@ venv/                    project virtualenv (pandas 3.0.3, scikit-learn 1.5.2)
 - **Tier-volume monitoring:** realized tier volumes run somewhat above nominal (e.g. Tier 1 at 1.47% vs the 1% target) because thresholds come from OOF quantiles while the final model scores sharper — monitor volumes after each retrain.
 - **Metric verification:** `score` outputs include *all* subscribers, including any that appeared in training. If you join scores with labels to verify performance, drop training-overlap MSISDNs first (the shipped reports already do).
 
-## Roadmap / known follow-ups
+## Roadmap
 
-- Logit-space (true Platt) calibration instead of probability-space logistic calibration.
-- Warn when label coercion drops unparseable values during training.
-- Evaluate on a true forward snapshot when one exists.
-- Uplift modeling (who can be *saved*, not just who will churn).
+The prioritized improvement plan — forward-in-time validation, retrain cadence with a
+metrics ledger, campaign feedback loop (intervention log + random control group), richer
+signals, model tuning, and uplift modeling — lives in
+[`docs/2026-08-19-improvement-roadmap.md`](docs/2026-08-19-improvement-roadmap.md).
+
+A blind test proving the engine identifies real churners from data with no labels or
+train/test flags is documented in
+[`docs/reports/2026-08-19-blind-test.md`](docs/reports/2026-08-19-blind-test.md)
+(85.4% Tier-1 precision, scored fully blind).
