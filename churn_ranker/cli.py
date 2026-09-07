@@ -10,7 +10,7 @@ import pandas as pd
 
 try:
     from churn_ranker import evaluation, schema
-    from churn_ranker.modeling import ChurnRanker
+    from churn_ranker.modeling import ChurnRanker, RankerConfig
 except ImportError:
     # Executed as a direct script (python churn_ranker/cli.py): Python puts the
     # package directory, not the repo root, on sys.path — add the root and retry.
@@ -18,7 +18,7 @@ except ImportError:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from churn_ranker import evaluation, schema
-    from churn_ranker.modeling import ChurnRanker
+    from churn_ranker.modeling import ChurnRanker, RankerConfig
 
 
 def _ensure_parent(path: str) -> None:
@@ -61,9 +61,10 @@ def audit_command(paths: list[str], output: str) -> dict:
 
 
 def train_command(train_csv: str, eval_csv: str | None,
-                  artifact: str, report_prefix: str) -> dict:
+                  artifact: str, report_prefix: str,
+                  use_monotonic_constraints: bool = False) -> dict:
     train_df = pd.read_csv(train_csv)
-    ranker = ChurnRanker()
+    ranker = ChurnRanker(RankerConfig(use_monotonic_constraints=use_monotonic_constraints))
     summary = ranker.fit(train_df)
     _ensure_parent(artifact)
     ranker.save(artifact)
@@ -266,6 +267,11 @@ def main(argv: list[str] | None = None) -> None:
     p_train.add_argument("--eval-csv", default=None)
     p_train.add_argument("--artifact", default="churn_ranker_outputs/churn_ranker.joblib")
     p_train.add_argument("--report-prefix", default="churn_ranker_outputs/churn_ranker")
+    p_train.add_argument(
+        "--monotonic-constraints", action="store_true",
+        help="Constrain engineered ratio/slope/collapse features to their known risk "
+             "direction (RankerConfig.use_monotonic_constraints)",
+    )
 
     p_score = sub.add_parser("score", help="Score a CSV in chunks")
     p_score.add_argument("input_csv")
@@ -286,7 +292,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "audit":
         audit_command(args.csvs, args.output)
     elif args.command == "train":
-        train_command(args.train_csv, args.eval_csv, args.artifact, args.report_prefix)
+        train_command(args.train_csv, args.eval_csv, args.artifact, args.report_prefix,
+                      args.monotonic_constraints)
     elif args.command == "evaluate":
         evaluate_command(args.scores_csv, args.labels_csv, args.train_csv,
                          [t.strip() for t in args.action_tiers.split(",") if t.strip()],

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from churn_ranker import cli
+from churn_ranker.modeling import ChurnRanker
 from tests.conftest import make_synthetic
 
 SAMPLE = Path(__file__).resolve().parents[1] / "Sample_data_full_feature.csv"
@@ -57,6 +58,34 @@ def test_train_with_eval_removes_msisdn_overlap(tmp_path):
     assert report["validation"]["overlap_msisdns_removed"] == 50
     assert report["validation"]["metrics"]["n"] == 350
     assert (tmp_path / "report_validation_lift.csv").exists()
+
+
+def test_train_monotonic_constraints_flag_enables_constrained_model(tmp_path, synthetic):
+    train_csv = tmp_path / "train.csv"
+    synthetic.to_csv(train_csv, index=False)
+    artifact = tmp_path / "model.joblib"
+    cli.main([
+        "train", str(train_csv),
+        "--artifact", str(artifact),
+        "--report-prefix", str(tmp_path / "report"),
+        "--monotonic-constraints",
+    ])
+    ranker = ChurnRanker.load(artifact)
+    assert ranker.model.monotonic_cst is not None
+    assert len(ranker.model.monotonic_cst) == len(ranker.feature_names_)
+
+
+def test_train_without_monotonic_constraints_flag_is_unconstrained(tmp_path, synthetic):
+    train_csv = tmp_path / "train.csv"
+    synthetic.to_csv(train_csv, index=False)
+    artifact = tmp_path / "model.joblib"
+    cli.main([
+        "train", str(train_csv),
+        "--artifact", str(artifact),
+        "--report-prefix", str(tmp_path / "report"),
+    ])
+    ranker = ChurnRanker.load(artifact)
+    assert ranker.model.monotonic_cst is None
 
 
 def test_audit_reports_files_and_overlap(tmp_path):

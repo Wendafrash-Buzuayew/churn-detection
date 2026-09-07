@@ -17,6 +17,14 @@ SERVICES = {
 CORE_SERVICES = ("DATA", "OG_VOICE", "SMS", "BUNDLE")
 COLLAPSE_RATIO = 0.2
 DECLINE_SLOPE = -0.3
+RECHARGE_DROP_RATIO_COLLAPSE_THRESHOLD = 0.5
+ENGAGEMENT_BREADTH_COLUMNS = (
+    "DATA_ACTIVE_DAYS_RECENT_4W",
+    "BUNDLE_ACTIVE_DAYS_RECENT_4W",
+    "TOTAL_VOICE_ACTIVE_WEEKS_RECENT_4W",
+    "TOTAL_SMS_ACTIVE_WEEKS_RECENT_4W",
+    "RECHARGE_ACTIVE_WEEKS_4W",
+)
 
 
 def week_matrix(df: pd.DataFrame, prefix: str) -> np.ndarray | None:
@@ -112,4 +120,78 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         out["FE_AON_LOG"] = np.log1p(aon.clip(lower=0)).astype(np.float32)
     else:
         out["FE_AON_LOG"] = nan_column
+
+    # Usage collapsing while recharge keeps flowing normally is a weak churn signal
+    # (secondary line, gift data, travel); usage and recharge decelerating together is
+    # much stronger. RECHARGE_AMT_DROP_RATIO_2W is a raw pre-computed column, not derived
+    # from the W10-13 matrices above.
+    if core_missing or "RECHARGE_AMT_DROP_RATIO_2W" not in df.columns:
+        out["FE_USAGE_RECHARGE_CO_COLLAPSE"] = nan_column
+    else:
+        recharge_drop_ratio = pd.to_numeric(
+            df["RECHARGE_AMT_DROP_RATIO_2W"], errors="coerce"
+        ).fillna(0.0).to_numpy()
+        out["FE_USAGE_RECHARGE_CO_COLLAPSE"] = (
+            (out["FE_COLLAPSE_BREADTH"].to_numpy() >= 2)
+            & (recharge_drop_ratio >= RECHARGE_DROP_RATIO_COLLAPSE_THRESHOLD)
+        ).astype(np.int8)
+
+    # Cross-service breadth of services with literally zero activity in the recent
+    # 4-week window (steadier than a single W13 snapshot week, and independent of the
+    # W10-13 matrices since these are separately-computed raw activity columns).
+    if all(c in df.columns for c in ENGAGEMENT_BREADTH_COLUMNS):
+        zero_flags = [
+            (pd.to_numeric(df[c], errors="coerce").fillna(0.0) <= 0).to_numpy()
+            for c in ENGAGEMENT_BREADTH_COLUMNS
+        ]
+        out["FE_LOW_ENGAGEMENT_SERVICE_COUNT"] = np.column_stack(zero_flags).sum(axis=1).astype(np.int8)
+    else:
+        out["FE_LOW_ENGAGEMENT_SERVICE_COUNT"] = nan_column
+
+    # Business-relevant severity: revenue exposed to a collapsing customer. NaN
+    # propagates automatically when FE_COLLAPSE_BREADTH is NaN (core services missing).
+    if "TOTAL_REVENUE_RECENT_4W" in df.columns:
+        revenue = pd.to_numeric(df["TOTAL_REVENUE_RECENT_4W"], errors="coerce").fillna(0.0).to_numpy()
+        out["FE_REVENUE_AT_RISK"] = (revenue * out["FE_COLLAPSE_BREADTH"].to_numpy()).astype(np.float32)
+    else:
+        out["FE_REVENUE_AT_RISK"] = nan_column
+
     return out
+
+
+# Suffixes of engineered (FE_*) columns whose relationship to churn risk is fixed by
+# construction (e.g. FE_*_W13_RATIO is current-over-baseline usage, so a *higher* ratio
+# means *less* collapse). Raw passthrough columns and any FE_ column not listed here
+# (e.g. FE_AON_LOG) carry no such hand-authored assumption and stay unconstrained.
+MONOTONIC_INCREASING_SUFFIXES = (
+    "_TERMINAL_ZERO_RUN",
+    "_ZERO_BREADTH",
+    "_COLLAPSE_BREADTH",
+    "_ALL_CORE_ZERO_W13",
+    "_TERMINAL_MULTI_SERVICE",
+    "_DECLINING_SERVICES",
+    "_RECHARGE_STOPPED",
+    "_CO_COLLAPSE",
+    "_LOW_ENGAGEMENT_SERVICE_COUNT",
+)
+MONOTONIC_DECREASING_SUFFIXES = (
+    "_W13_RATIO",
+    "_SLOPE",
+)
+
+
+def monotonic_constraints(feature_names: list[str]) -> list[int]:
+    """Per-feature direction (1/-1/0) for HistGradientBoostingClassifier's monotonic_cst,
+    aligned to `feature_names` order. Only derived FE_* signals with an unambiguous,
+    engineered-in relationship to risk get a nonzero constraint."""
+    constraints = []
+    for name in feature_names:
+        if not name.startswith("FE_"):
+            constraints.append(0)
+        elif any(name.endswith(suffix) for suffix in MONOTONIC_INCREASING_SUFFIXES):
+            constraints.append(1)
+        elif any(name.endswith(suffix) for suffix in MONOTONIC_DECREASING_SUFFIXES):
+            constraints.append(-1)
+        else:
+            constraints.append(0)
+    return constraints

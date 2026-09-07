@@ -6,12 +6,13 @@
 
 | Metric | Value |
 |---|---|
-| ROC-AUC | 0.870 |
+| ROC-AUC | 0.869 |
 | PR-AUC | 0.507 (vs 5.1% base rate) |
-| Lift @ top 5% | 9.5× — 48.4% precision, catches 47.3% of all churners |
-| Tier 1 precision | 85.4% (6,306 customers, 27% of all churners) |
+| Lift @ top 5% | 9.5× — 48.7% precision, catches 47.6% of all churners |
+| Tier 1 precision | 84.6% (6,420 customers, 27.2% of all churners) |
+| Calibration (Brier / ECE) | 0.031 / 0.0007 (held-out slice, see `churn_ranker/modeling.py`) |
 
-Full results, per-tier tables, and caveats: [`docs/reports/2026-08-18-churn-ranker-results.md`](docs/reports/2026-08-18-churn-ranker-results.md).
+Full results, per-tier tables, and caveats: [`docs/reports/2026-08-18-churn-ranker-results.md`](docs/reports/2026-08-18-churn-ranker-results.md) (original run). Current baseline (`docs/reports/metrics_baseline.json`, retrained 2026-09-04) adds: held-out calibration/thresholds (fixes tier volumes being set from the wrong model's score distribution), and three composite features — `FE_USAGE_RECHARGE_CO_COLLAPSE`, `FE_LOW_ENGAGEMENT_SERVICE_COUNT`, `FE_REVENUE_AT_RISK` (see `churn_ranker/features.py`). Net effect versus the original run: essentially flat ROC-AUC/PR-AUC, a small reduction in false positives (-117 wasted contacts on the validation cohort). Three separate experiments this cycle (calibration fix, monotonic constraints, these features) each showed no regression but no material gain either — the model is likely near its ceiling on the current 4-week usage/recharge feature set; see `scripts/compare_training_reports.py` for the full before/after and the roadmap for what's next (complaint/care signals, contract lifecycle, network experience).
 
 ---
 
@@ -83,12 +84,12 @@ input CSV ──► schema.py ──► features.py ──► modeling.py ──
 
 1. **`churn_ranker/schema.py`** — normalizes column names and maps known aliases to a canonical schema (the Feb and March extracts name recharge columns differently, e.g. `RECHARGE_AMT_TOTAL_4W` vs `RECHARGE_AMT_RECENT_4W`). Excludes leakage columns (`MSISDN*`, `LABEL_*`, `SNAPSHOT_DATE`, `DATASET_TYPE`, recharge date/band strings) from the model.
 2. **`churn_ranker/features.py`** — derives churn signals from the W10–W13 weekly usage columns per service (data, voice, SMS, bundles, recharge): last-week/baseline collapse ratios, terminal zero-week runs, decay slopes, multi-service collapse breadth, recharge cliffs, tenure. Missing input columns become NaN (never fabricated zeros); HistGradientBoosting handles NaN natively.
-3. **`churn_ranker/modeling.py`** — `ChurnRanker`: HistGradientBoostingClassifier, out-of-fold predictions from stratified CV feed a sigmoid calibrator, and tier thresholds are frozen at train time from calibrated OOF score quantiles (so production volumes stay stable). The whole model persists as a single joblib artifact.
-4. **`churn_ranker/evaluation.py`** — ranking metrics: ROC-AUC, PR-AUC, and capacity lift tables (precision/recall/lift at top 1/2/5/10/20%).
+3. **`churn_ranker/modeling.py`** — `ChurnRanker`: HistGradientBoostingClassifier, out-of-fold predictions from stratified CV drive the reported OOF metrics. Calibration and tier thresholds are set from a **genuine held-out slice scored by the deployed model itself** whenever there's enough of the minority class to trust it (`RankerConfig.calibration_holdout_frac`, default 15%, gated by `min_calibration_positives`/`min_calibration_negatives`, default 20 each) — this fixes tier volumes running above nominal, which happened because thresholds were previously set from the out-of-fold ensemble's score distribution while the deployed model (fit on 100% of data) scores measurably sharper. Falls back to the old OOF-based calibration when the minority class is too small to split safely (e.g. the 0.54%-churn dev fixture). Calibration itself is fit in **logit space** (true Platt scaling) rather than on the raw [0,1] probability, which avoids compression artifacts at the extremes — exactly where tier cutoffs live. `RankerConfig.use_monotonic_constraints` (default off) applies sign-constrained splits (via `features.monotonic_constraints`) to the engineered signals whose direction is unambiguous by construction (e.g. a higher week-13-vs-baseline ratio must not increase predicted risk). The whole model persists as a single joblib artifact.
+4. **`churn_ranker/evaluation.py`** — ranking metrics (ROC-AUC, PR-AUC), capacity lift tables (precision/recall/lift at top 1/2/5/10/20%), and calibration quality (`brier_score`, `expected_calibration_error`) — the latter reported per training run under `training_summary["calibration"]`.
 5. **`churn_ranker/tiers.py`** — tier assignment from stored thresholds and priority-ordered reason codes.
 6. **`churn_ranker/cli.py`** — the `audit` / `train` / `score` commands.
 
-Tier sizes are configurable via `RankerConfig.tier_spec` in `modeling.py` — set them from actual campaign capacity.
+Tier sizes are configurable via `RankerConfig.tier_spec` in `modeling.py` — set them from actual campaign capacity. `scripts/compare_training_reports.py` compares a retrain's OOF/validation AUCs, tier volumes, Tier 1 precision, and calibration metrics against a committed baseline (`docs/reports/metrics_baseline.json`) and flags regressions.
 
 ## Data files
 

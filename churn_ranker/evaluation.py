@@ -46,3 +46,32 @@ def lift_table(y_true, scores, top_fractions=TOP_FRACTIONS) -> pd.DataFrame:
             "lift": precision / base_rate,
         })
     return pd.DataFrame(rows)
+
+
+def brier_score(y_true, scores) -> float:
+    """Mean squared error between calibrated probability and outcome (lower is better)."""
+    y = np.asarray(y_true, dtype=float)
+    s = np.asarray(scores, dtype=float)
+    if len(y) == 0:
+        return 0.0
+    return float(np.mean((s - y) ** 2))
+
+
+def expected_calibration_error(y_true, scores, n_bins: int = 10) -> float:
+    """Weighted mean gap between predicted probability and observed rate, per score bin."""
+    y = np.asarray(y_true, dtype=float)
+    s = np.asarray(scores, dtype=float)
+    n = len(y)
+    if n == 0:
+        return 0.0
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_ids = np.clip(np.digitize(s, bin_edges[1:-1], right=True), 0, n_bins - 1)
+    ece = 0.0
+    for b in range(n_bins):
+        mask = bin_ids == b
+        if not mask.any():
+            continue
+        bin_confidence = s[mask].mean()
+        bin_accuracy = y[mask].mean()
+        ece += (mask.sum() / n) * abs(bin_confidence - bin_accuracy)
+    return float(ece)
